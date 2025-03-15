@@ -48,10 +48,12 @@ impl LatestHash {
 }
 #[tokio::main]
 async fn main() -> Result<()> {
+    let args: Vec<String> = std::env::args().collect();
+    let rpc_url = args.get(1).expect("rpc url must be an argument");
     tracing_subscriber::fmt::init();
     info!("Generating keypairs");
     // let rpc_url = "https://api.devnet.solana.com";
-    let rpc_url = "http://127.0.0.1:8899";
+    // let rpc_url = "http://127.0.0.1:8899";
     let rpc_client = RpcClient::new(rpc_url.into());
 
     // Generate keypairs for transactions
