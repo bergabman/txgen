@@ -1,11 +1,8 @@
 use std::time::Duration;
 
-use anyhow::{Result, anyhow};
+use anyhow::Result;
 use futures::stream::{FuturesUnordered, StreamExt};
-use rand::{
-    Rng,
-    seq::{IndexedRandom, SliceRandom},
-};
+use rand::{Rng, seq::IndexedRandom};
 use serde_json::json;
 use solana_client::{
     client_error::ClientError, nonblocking::rpc_client::RpcClient,
@@ -49,7 +46,7 @@ impl LatestHash {
 #[tokio::main]
 async fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().collect();
-    let rpc_url = args.get(1).expect("rpc url must be an argument");
+    let rpc_url = args.get(1).expect("Missing argument <RPC_URL>");
     tracing_subscriber::fmt::init();
     info!("Generating keypairs");
     // let rpc_url = "https://api.devnet.solana.com";
@@ -62,7 +59,6 @@ async fn main() -> Result<()> {
     if let Err(err) = request_airdrops(&keypairs, &rpc_client).await {
         error!("Airdrops failed {}", err.to_string())
     }
-    let mut mint = Pubkey::new_unique();
 
     let mint = loop {
         tokio::time::sleep(Duration::from_secs(4)).await;
@@ -71,7 +67,6 @@ async fn main() -> Result<()> {
             Err(err) => error!("{}", err.to_string()),
         }
     };
-    // let mint = setup_token(&keypairs, &rpc_client).await.unwrap();
 
     if let Err(err) = start_sending_txs(&keypairs, &rpc_client, mint).await {
         error!("Airdrops failed {}", err.to_string())
@@ -183,7 +178,7 @@ fn gen_random_sol_tx(keypairs: &Vec<Keypair>, latest_hash: &LatestHash) -> Resul
     let from_keypair = keypairs.choose(&mut rng).unwrap(); // only fails if the vec is empty
     let to_keypair = keypairs.choose(&mut rng).unwrap();
 
-    // random number between 5000 and 10000 laports, 5000 is minimum for tx fee
+    // random number between 5000 and 10000 lamports, 5000 is minimum for tx fee
     let amount = rng.random_range(5000..10000);
 
     let instruction =
@@ -203,10 +198,10 @@ fn gen_random_token_tx(
     latest_hash: &LatestHash,
 ) -> Result<Transaction> {
     let mut rng = rand::rng();
-    let from_keypair = keypairs.choose(&mut rng).unwrap(); // only fails if the vec is empty
+    let from_keypair = keypairs.choose(&mut rng).unwrap();
     let to_keypair = keypairs.choose(&mut rng).unwrap();
 
-    // random number between 5000 and 10000 laports, 5000 is minimum for tx fee
+    // random number for token transfers
     let amount = rng.random_range(69..420);
     let from_token_account = get_associated_token_address_with_program_id(
         &from_keypair.pubkey(),
@@ -273,7 +268,7 @@ async fn setup_token(keypairs: &Vec<Keypair>, rpc_client: &RpcClient) -> Result<
             rpc_client.get_latest_blockhash().await?,
         );
         if let Err(error) = rpc_client.send_and_confirm_transaction(&transaction).await {
-            error!("error initializing mint {}", error);
+            error!("Error initializing mint {}, trying again in 2s", error);
             tokio::time::sleep(Duration::from_secs(2)).await;
         } else {
             info!("mint {}", mint_keypair.pubkey());
@@ -285,6 +280,7 @@ async fn setup_token(keypairs: &Vec<Keypair>, rpc_client: &RpcClient) -> Result<
     let mut atas = vec![];
     let latest_hash = rpc_client.get_latest_blockhash().await?;
     // Set up associated token accounts and mint tokens to each
+    info!("Creating atas");
     for keypair in keypairs {
         let user_pubkey = keypair.pubkey();
 
@@ -304,8 +300,7 @@ async fn setup_token(keypairs: &Vec<Keypair>, rpc_client: &RpcClient) -> Result<
 
         if !exists {
             // Create associated token account
-            info!("creating ata {}", &associated_token_account);
-            // tokio::time::sleep(Duration::from_secs(1)).await;
+
             let create_associated_token_account_ix = create_associated_token_account_idempotent(
                 &user_pubkey,
                 &user_pubkey,
@@ -319,17 +314,12 @@ async fn setup_token(keypairs: &Vec<Keypair>, rpc_client: &RpcClient) -> Result<
                 latest_hash,
             );
             ftrs.push(create_confirmed_transaction_future(transaction, rpc_client));
-            // match rpc_client.send_and_confirm_transaction(&transaction).await {
-            //     Ok(sig) => info!("ata created {}", sig),
-            //     Err(err) => error!("{}", err.to_string()),
-            // }
-            // let _ = rpc_client.get_signature_status(&signature).await?;
         }
     }
 
     while let Some(txresult) = ftrs.next().await {
         match txresult {
-            Ok(sig) => {}
+            Ok(_sig) => {}
             Err(err) => error!("{}", err.to_string()),
         }
     }
@@ -355,20 +345,8 @@ async fn setup_token(keypairs: &Vec<Keypair>, rpc_client: &RpcClient) -> Result<
         );
 
         ftrs.push(create_confirmed_transaction_future(transaction, rpc_client));
-        //  loop {
-        //      tokio::time::sleep(Duration::from_secs(2)).await;
-        //      match rpc_client.send_transaction(&transaction).await {
-        //          Ok(sig) => {
-        //              info!("minted https://explorer.solana.com/tx/{}?cluster=custom", sig);
-        //              break
-        //          },
-        //          Err(err) => {
-        //              error!("Mint failed {}", err.to_string());
-        //              continue;
-        //          },
-        //      }
-        //  }
     }
+
     while let Some(txresult) = ftrs.next().await {
         match txresult {
             Ok(sig) => {
